@@ -1086,22 +1086,21 @@ class BuildTarget(Target):
         are libraries needed at runtime which is different from the set needed
         at link time, see get_dependencies() for that.
         """
-        result: T.List[Target] = []
-        visited: T.Set[Target] = set()
-        stack: T.Deque[Target] = deque()
+        result: OrderedSet[BuildTargetTypes] = OrderedSet()
+        stack: T.Deque[BuildTargetTypes] = deque()
         stack.extendleft(self.link_targets)
         stack.extendleft(self.link_whole_targets)
         while stack:
             t = stack.pop()
-            if t in visited:
+            if t in result:
                 continue
-            visited.add(t)
             if isinstance(t, SharedLibrary):
-                result.append(t)
-            if isinstance(t, BuildTarget):
+                result.add(t)
                 stack.extendleft(t.link_targets)
                 stack.extendleft(t.link_whole_targets)
-        return result
+            elif isinstance(t, CustomTargetIndex):
+                stack.appendleft(t.target)
+        return list(result)
 
     def get_link_deps_mapping(self, prefix: str) -> T.Mapping[str, str]:
         return self.get_transitive_link_deps_mapping(prefix)
