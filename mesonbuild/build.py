@@ -1079,27 +1079,27 @@ class BuildTarget(Target):
         return ExtractedObjects(self, self.sources, self.generated, self.objects,
                                 recursive, pch=True)
 
-    @lru_cache(maxsize=None)
+    def get_toplevel_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
+        return self.link_targets
+
     def get_all_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
         """ Get all shared libraries dependencies
         This returns all shared libraries in the entire dependency tree. Those
         are libraries needed at runtime which is different from the set needed
         at link time, see get_dependencies() for that.
         """
+        return self.get_transitive_link_deps()
+
+    @lru_cache(maxsize=None)
+    def get_transitive_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
         result: OrderedSet[BuildTargetTypes] = OrderedSet()
         stack: T.Deque[BuildTargetTypes] = deque()
-        stack.extendleft(self.link_targets)
-        stack.extendleft(self.link_whole_targets)
+        stack.appendleft(self)
         while stack:
-            t = stack.pop()
-            if t in result:
-                continue
-            if isinstance(t, SharedLibrary):
-                result.add(t)
-                stack.extendleft(t.link_targets)
-                stack.extendleft(t.link_whole_targets)
-            elif isinstance(t, CustomTargetIndex):
-                stack.appendleft(t.target)
+            for i in stack.pop().get_toplevel_link_deps():
+                if i not in result:
+                    result.add(i)
+                    stack.appendleft(i)
         return list(result)
 
     def get_link_deps_mapping(self, prefix: str) -> T.Mapping[str, str]:
@@ -2413,6 +2413,12 @@ class SharedLibrary(BuildTarget):
         """
         return self.debug_filename
 
+    def get_toplevel_link_deps(self):
+        return [self] + self.link_targets
+
+    def get_all_link_deps(self):
+        return [self] + self.get_transitive_link_deps()
+
     def get_aliases(self) -> T.List[T.Tuple[str, str, str]]:
         """
         If the versioned library name is libfoo.so.0.100.0, aliases are:
@@ -2730,6 +2736,12 @@ class CustomTarget(Target, CustomTargetBase, CommandBase):
     def get_link_dep_subdirs(self) -> T.AbstractSet[str]:
         return OrderedSet()
 
+    def get_toplevel_link_deps(self):
+        return []
+
+    def get_all_link_deps(self):
+        return []
+
     def is_internal(self) -> bool:
         '''
         Returns True if this is a not installed static library.
@@ -2975,6 +2987,12 @@ class CustomTargetIndex(CustomTargetBase, HoldableObject):
 
     def get_id(self) -> str:
         return self.target.get_id()
+
+    def get_toplevel_link_deps(self):
+        return self.target.get_toplevel_link_deps()
+
+    def get_all_link_deps(self):
+        return self.target.get_all_link_deps()
 
     def get_link_deps_mapping(self, prefix: str) -> T.Mapping[str, str]:
         return self.target.get_link_deps_mapping(prefix)
