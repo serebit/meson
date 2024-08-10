@@ -1085,23 +1085,21 @@ class BuildTarget(Target):
         are libraries needed at runtime which is different from the set needed
         at link time, see get_dependencies() for that.
         """
-        return self.get_transitive_link_deps()
-
-    @lru_cache(maxsize=None)
-    def get_transitive_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
         result: OrderedSet[BuildTargetTypes] = OrderedSet()
         stack: T.Deque[BuildTargetTypes] = deque()
         stack.appendleft(self)
         while stack:
             t = stack.pop()
-            if isinstance(t, CustomTargetIndex):
-                t = t.target
             if t in result:
+                continue
+            if isinstance(t, CustomTargetIndex):
+                stack.appendleft(t.target)
                 continue
             if isinstance(t, SharedLibrary):
                 result.add(t)
             if isinstance(t, BuildTarget):
                 stack.extendleft(t.link_targets)
+                stack.extendleft(t.link_whole_targets)
         return list(result)
 
     def get_link_deps_mapping(self, prefix: str) -> T.Mapping[str, str]:
@@ -2414,9 +2412,6 @@ class SharedLibrary(BuildTarget):
         Returns None if the build won't create any debuginfo file
         """
         return self.debug_filename
-
-    def get_all_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
-        return [self] + self.get_transitive_link_deps()
 
     def get_aliases(self) -> T.List[T.Tuple[str, str, str]]:
         """
