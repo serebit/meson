@@ -1079,9 +1079,6 @@ class BuildTarget(Target):
         return ExtractedObjects(self, self.sources, self.generated, self.objects,
                                 recursive, pch=True)
 
-    def get_toplevel_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
-        return self.link_targets
-
     def get_all_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
         """ Get all shared libraries dependencies
         This returns all shared libraries in the entire dependency tree. Those
@@ -1096,10 +1093,15 @@ class BuildTarget(Target):
         stack: T.Deque[BuildTargetTypes] = deque()
         stack.appendleft(self)
         while stack:
-            for i in stack.pop().get_toplevel_link_deps():
-                if i not in result:
-                    result.add(i)
-                    stack.appendleft(i)
+            t = stack.pop()
+            if isinstance(t, CustomTargetIndex):
+                t = t.target
+            if t in result:
+                continue
+            if isinstance(t, SharedLibrary):
+                result.add(t)
+            if isinstance(t, BuildTarget):
+                stack.extendleft(t.link_targets)
         return list(result)
 
     def get_link_deps_mapping(self, prefix: str) -> T.Mapping[str, str]:
@@ -2413,10 +2415,7 @@ class SharedLibrary(BuildTarget):
         """
         return self.debug_filename
 
-    def get_toplevel_link_deps(self):
-        return [self] + self.link_targets
-
-    def get_all_link_deps(self):
+    def get_all_link_deps(self) -> ImmutableListProtocol[BuildTargetTypes]:
         return [self] + self.get_transitive_link_deps()
 
     def get_aliases(self) -> T.List[T.Tuple[str, str, str]]:
@@ -2736,9 +2735,6 @@ class CustomTarget(Target, CustomTargetBase, CommandBase):
     def get_link_dep_subdirs(self) -> T.AbstractSet[str]:
         return OrderedSet()
 
-    def get_toplevel_link_deps(self):
-        return []
-
     def get_all_link_deps(self):
         return []
 
@@ -2987,9 +2983,6 @@ class CustomTargetIndex(CustomTargetBase, HoldableObject):
 
     def get_id(self) -> str:
         return self.target.get_id()
-
-    def get_toplevel_link_deps(self):
-        return self.target.get_toplevel_link_deps()
 
     def get_all_link_deps(self):
         return self.target.get_all_link_deps()
